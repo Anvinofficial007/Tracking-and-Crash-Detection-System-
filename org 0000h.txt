@@ -1,0 +1,91 @@
+#include <Wire.h>
+#include <MPU9250_asukiaaa.h>
+#include <SoftwareSerial.h>
+
+MPU9250_asukiaaa mySensor;
+
+// SIM800L RX to D7, TX to D8 (NodeMCU)
+SoftwareSerial sim800(D7, D8); // D7 = GPIO13, D8 = GPIO15
+
+bool smsSent = false; // Prevents SMS spamming
+
+void setup() {
+  Serial.begin(115200);
+  sim800.begin(9600); // SIM800L baud rate
+
+  // Initialize I2C for MPU9250 (D2=SDA, D1=SCL)
+  Wire.begin(D2, D1); // D2 = GPIO4, D1 = GPIO5
+
+  mySensor.setWire(&Wire);
+  mySensor.beginAccel();
+  mySensor.beginGyro();
+
+  Serial.println("MPU9250 initialized");
+
+  // Initialize SIM800L
+  sendATCommand("AT");
+  delay(500);
+  sendATCommand("AT+CMGF=1"); // SMS text mode
+  delay(500);
+}
+
+void loop() {
+  mySensor.accelUpdate();
+  mySensor.gyroUpdate();
+
+  float ax = mySensor.accelX();
+  float ay = mySensor.accelY();
+  float az = mySensor.accelZ();
+
+  float gx = mySensor.gyroX();
+  float gy = mySensor.gyroY();
+  float gz = mySensor.gyroZ();
+
+  float accelMagnitude = sqrt(ax * ax + ay * ay + az * az);
+  float gyroMagnitude = sqrt(gx * gx + gy * gy + gz * gz);
+
+  Serial.print("Accel [g]: X="); Serial.print(ax, 2);
+  Serial.print(" Y="); Serial.print(ay, 2);
+  Serial.print(" Z="); Serial.print(az, 2);
+  Serial.print(" | G-Force: "); Serial.println(accelMagnitude, 2);
+
+  Serial.print("Gyro [°/s]: X="); Serial.print(gx, 2);
+  Serial.print(" Y="); Serial.print(gy, 2);
+  Serial.print(" Z="); Serial.print(gz, 2);
+  Serial.print(" | Gyro Magnitude: "); Serial.println(gyroMagnitude, 2);
+
+  if ((accelMagnitude > 1.5 || gyroMagnitude > 25.0) && !smsSent) {
+    Serial.println("⚠ Crash Detected! Sending SMS...");
+    sendSMS("+91XXXXXXXXXX", "⚠ Crash Detected! Please check the vehicle.");
+    smsSent = true; // Stop sending repeatedly
+  } else {
+    Serial.println("Status: Normal");
+  }
+
+  Serial.println("-----");
+  delay(1000);
+}
+
+void sendSMS(String number, String message) {
+  sim800.println("AT+CMGF=1"); // SMS text mode
+  delay(1000);
+
+  sim800.print("AT+CMGS=\"");
+  sim800.print(number);
+  sim800.println("\"");
+  delay(1000);
+
+  sim800.print(message);
+  delay(500);
+
+  sim800.write(26); // CTRL+Z to send SMS
+  delay(3000);
+}
+
+void sendATCommand(String cmd) {
+  sim800.println(cmd);
+  delay(1000);
+  while (sim800.available()) {
+    Serial.write(sim800.read());
+  }
+}
